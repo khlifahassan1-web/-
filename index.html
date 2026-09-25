@@ -83,7 +83,7 @@ h2{font-size:17px;margin-top:0}
 <div class="card">💰 إجمالي السيولة<b id="total">0 SDG</b></div>
 <div class="card">📈 الإيرادات<b id="inc">0 SDG</b></div>
 <div class="card">💸 المصروفات<b id="out">0 SDG</b></div>
-<div class="card">📊 صافي الربح<b id="profit">0 SDG</b></div></div>
+<div class="card">📊 صافي الدخل<b id="profit">0 SDG</b></div></div>
 
 <div class="actions">
 <button onclick="openForm('income')">➕ إضافة إيراد</button><button onclick="openForm('expense')">➖ إضافة منصرف</button>
@@ -357,77 +357,3 @@ async function deleteArchiveMonth(mk) {
   await sb.from('months').delete().eq('month_key', mk);
   if (mk === monthKey) await loadMonth();
   openArchive();
-}
-
-// ---------- النسخ الاحتياطي ----------
-function openBackup() {
-  form.classList.add('hide'); records.classList.add('hide'); reports.classList.add('hide'); archive.classList.add('hide'); users.classList.add('hide');
-  backup.classList.remove('hide'); backupMsg.textContent = '';
-}
-async function exportBackup() {
-  const { data: tx } = await sb.from('transactions').select('*');
-  const { data: mo } = await sb.from('months').select('*');
-  const payload = { app: 'lab_accounts_backup', version: 3, exportedAt: new Date().toISOString(), transactions: tx || [], months: mo || [] };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = 'نسخة_احتياطية_حسابات_المعمل_' + new Date().toISOString().slice(0, 10) + '.json';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  backupMsg.className = 'ok'; backupMsg.textContent = '✅ تم تنزيل ملف النسخة الاحتياطية.';
-}
-function importBackup(ev) {
-  const file = ev.target.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async function () {
-    try {
-      const payload = JSON.parse(reader.result);
-      if (!Array.isArray(payload.transactions)) throw new Error('ملف غير صالح');
-      const clean = payload.transactions.map(({ id, ...rest }) => rest);
-      const { error } = await sb.from('transactions').insert(clean);
-      if (error) throw error;
-      backupMsg.className = 'ok'; backupMsg.textContent = '✅ تم استيراد ' + clean.length + ' عملية بنجاح.';
-      await loadMonth();
-    } catch (e) { backupMsg.className = 'err'; backupMsg.textContent = e.message }
-    importFile.value = '';
-  };
-  reader.readAsText(file, 'utf-8');
-}
-
-// ---------- إدارة المستخدمين ----------
-async function openUsers() {
-  form.classList.add('hide'); records.classList.add('hide'); reports.classList.add('hide'); archive.classList.add('hide'); backup.classList.add('hide');
-  users.classList.remove('hide');
-  const { data: list } = await sb.from('profiles').select('*').order('created_at');
-  usersList.innerHTML = (list || []).map(u => {
-    const roleLbl = u.role === 'admin' ? 'مدير' : 'موظف';
-    const isMe = u.id === myId;
-    return '<div class="card full" style="text-align:right;margin-bottom:8px"><b>' + u.username + '</b> <span class="badge">' + roleLbl + '</span> ' + (u.active ? '' : '<span class="badge closed">معطّل</span>')
-      + (isMe ? '' : '<div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px">'
-        + '<button onclick="toggleUserActive(\'' + u.id + '\',' + !u.active + ')">' + (u.active ? 'تعطيل' : 'تفعيل') + '</button>'
-        + '<button onclick="toggleUserRole(\'' + u.id + '\',\'' + (u.role === 'admin' ? 'employee' : 'admin') + '\')">' + (u.role === 'admin' ? 'خفض لموظف' : 'ترقية لمدير') + '</button></div>')
-      + '</div>';
-  }).join('');
-}
-async function toggleUserActive(id, active) { await sb.from('profiles').update({ active }).eq('id', id); openUsers() }
-async function toggleUserRole(id, r) { await sb.from('profiles').update({ role: r }).eq('id', id); openUsers() }
-
-// ---------- المزامنة الفورية ----------
-let rtChannel = null;
-function connectRealtime() {
-  rtChannel = sb.channel('lab-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, p => {
-      const mk = p.new?.month_key || p.old?.month_key;
-      if (mk === monthKey) loadMonth();
-    })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'months' }, () => {
-      if (!archive.classList.contains('hide')) openArchive();
-    })
-    .subscribe(status => connDot.classList.toggle('off', status !== 'SUBSCRIBED'));
-}
-
-async function boot() { await loadMonth(); connectRealtime() }
-if (initClient()) tryResume();
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(() => {}));
-}
-
-</script></body></html>
